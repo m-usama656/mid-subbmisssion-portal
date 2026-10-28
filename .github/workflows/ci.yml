@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MAIL_TO: ${{ secrets.MAIL_TO }}   # email bonus runs only when this secret exists
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # A failing test makes this step (and therefore the job) fail.
+      - name: Run tests
+        run: pytest -v
+
+      # Runs for both passing and failing test runs.
+      - name: Send report to local receiver
+        if: always()
+        env:
+          RECEIVER_URL: ${{ secrets.RECEIVER_URL }}
+        run: python scripts/send_report.py
+
+      # Bonus: email report (only when MAIL_TO / MAIL_USERNAME / MAIL_PASSWORD secrets are set)
+      - name: Email report
+        if: always() && env.MAIL_TO != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.MAIL_TO }}
+          from: CI Reports <${{ secrets.MAIL_USERNAME }}>
+          subject: "[CI ${{ job.status }}] ${{ github.repository }} ${{ github.sha }}"
+          body: file://email-body.txt
+          attachments: test-report.json
+
+  # Bonus: deploy the static demo only when every test passed on main.
+  # Enable by creating a repository variable ENABLE_PAGES = true
+  # and setting Settings > Pages > Source = GitHub Actions.
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4

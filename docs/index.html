@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Submission Portal Demo</title>
+<style>body{font-family:Arial,sans-serif;max-width:700px;margin:30px auto;padding:0 16px}
+input{display:block;width:100%;padding:8px;margin:4px 0 12px;box-sizing:border-box}
+.e{color:#c00;margin-bottom:10px}td,th{border:1px solid #ccc;padding:6px;text-align:left}
+table{border-collapse:collapse;width:100%}button{padding:10px 18px}</style></head>
+<body><h1>Assignment Submission Portal (static demo)</h1>
+<p>Demo of the portal's frontend. Data is kept in this page only.</p>
+<input id="name" placeholder="Student name"><input id="reg" placeholder="Registration number">
+<input id="title" placeholder="Assignment title"><input id="url" placeholder="Submission URL">
+<div id="msg" class="e"></div><button onclick="add()">Submit</button>
+<h2>Saved submissions</h2>
+<table id="t"><tr><th>Name</th><th>Reg. no.</th><th>Title</th><th>URL</th></tr></table>
+<script>
+function ok(u){try{const x=new URL(u);return x.protocol==='http:'||x.protocol==='https:'}catch(e){return false}}
+function add(){
+  const v=id=>document.getElementById(id).value.trim();
+  const [n,r,t,u]=[v('name'),v('reg'),v('title'),v('url')];
+  const msg=document.getElementById('msg');
+  if(!n||!r||!t||!u){msg.textContent='All fields are required.';return}
+  if(!ok(u)){msg.textContent='Enter a valid URL starting with http:// or https://';return}
+  msg.textContent='';
+  const row=document.getElementById('t').insertRow();
+  [n,r,t,u].forEach(x=>row.insertCell().textContent=x);
+}
+</script></body></html>
