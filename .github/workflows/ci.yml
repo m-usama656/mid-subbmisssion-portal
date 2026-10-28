@@ -1,72 +1,105 @@
-name: CI
+name: CI Test Pipeline
 
 on:
   push:
-
-permissions:
-  contents: read
+    branches: [ "main", "*" ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      MAIL_TO: ${{ secrets.MAIL_TO }}   # email bonus runs only when this secret exists
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.10'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      # A failing test makes this step (and therefore the job) fail.
-      - name: Run tests
-        run: pytest -v
+      - name: Run Pytest and Generate JUnit XML
+        id: run_tests
+        continue-on-error: true
+        run: |
+          pytest --junitxml=junit.xml
 
-      # Runs for both passing and failing test runs.
-      - name: Send report to local receiver
-        if: always()
+      - name: Process Test Results & Send to Receiver
         env:
-          RECEIVER_URL: ${{ secrets.RECEIVER_URL }}
-        run: python scripts/send_report.py
+          REPORT_RECEIVER_URL: ${{ secrets.REPORT_RECEIVER_URL }}
+        run: |
+          python -c '
+          import xml.etree.ElementTree as ET
+          import json, os, datetime, urllib.request
 
-      # Bonus: email report (only when MAIL_TO / MAIL_USERNAME / MAIL_PASSWORD secrets are set)
-      - name: Email report
-        if: always() && env.MAIL_TO != ''
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          to: ${{ secrets.MAIL_TO }}
-          from: CI Reports <${{ secrets.MAIL_USERNAME }}>
-          subject: "[CI ${{ job.status }}] ${{ github.repository }} ${{ github.sha }}"
-          body: file://email-body.txt
-          attachments: test-report.json
+          try:
+              tree = ET.parse("junit.xml")
+              root = tree.getroot()
+              
+              # Handle both <testsuites> and <testsuite> root elements
+              if root.tag == "testsuites":
+                  testsuite = root.find("testsuite")
+                  if testsuite is None:
+                      testsuite = root
+              else:
+                  testsuite = root
 
-  # Bonus: deploy the static demo only when every test passed on main.
-  # Enable by creating a repository variable ENABLE_PAGES = true
-  # and setting Settings > Pages > Source = GitHub Actions.
-  deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main' && vars.ENABLE_PAGES == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-      - id: deployment
-        uses: actions/deploy-pages@v4
+              tests = int(testsuite.get("tests", 0))
+              failures = int(testsuite.get("failures", 0))
+              errors = int(testsuite.get("errors", 0))
+              skipped = int(testsuite.get("skipped", 0))
+              passed = tests - (failures + errors + skipped)
+              
+              failed_count = failures + errors
+              overall_status = "PASS" if failed_count == 0 else "FAIL"
+
+              test_cases = []
+              for case in testsuite.findall("testcase"):
+                  name = case.get("name")
+                  failure = case.find("failure")
+                  msg = failure.text if failure is not None else None
+                  status = "FAIL" if failure is not None else "PASS"
+                  test_cases.append({"name": name, "result": status, "message": msg})
+
+              report = {
+                  "repository": os.getenv("GITHUB_REPOSITORY"),
+                  "branch": os.getenv("GITHUB_REF_NAME"),
+                  "commit_sha": os.getenv("GITHUB_SHA"),
+                  "run_id": os.getenv("GITHUB_RUN_ID"),
+                  "timestamp": datetime.datetime.utcnow().isoformat(),
+                  "overall_status": overall_status,
+                  "total_count": tests,
+                  "passed_count": passed,
+                  "failed_count": failed_count,
+                  "tests": test_cases
+              }
+
+              with open("test-report.json", "w") as f:
+                  json.dump(report, f, indent=4)
+              print("Successfully generated test-report.json")
+
+              receiver_url = os.getenv("REPORT_RECEIVER_URL")
+              if receiver_url:
+                  req = urllib.request.Request(
+                      receiver_url,
+                      data=json.dumps(report).encode("utf-8"),
+                      headers={"Content-Type": "application/json"}
+                  )
+                  try:
+                      with urllib.request.urlopen(req) as response:
+                          print("Report successfully posted to receiver:", response.read().decode())
+                  except Exception as e:
+                      print("Warning: Failed to post report to receiver (local tunnel might be closed):", e)
+              else:
+                  print("REPORT_RECEIVER_URL secret not set. Skipping webhook transmission (tests still passed).")
+          except Exception as ex:
+              print("Error processing test results XML:", ex)
+              exit(1)
+          '
+
+      - name: Fail Build if Tests Failed
+        if: steps.run_tests.outcome != 'success'
+        run: exit 1
