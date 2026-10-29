@@ -6,6 +6,16 @@ PORT = 5001
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Added to prevent 501 errors if opened in a browser."""
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(
+            b"<h3>Test Report Receiver is Running!</h3>"
+            b"<p>Waiting for GitHub Actions POST requests at <code>/report</code>.</p>"
+        )
+
     def do_POST(self):
         if self.path != "/report":
             self.send_error(404)
