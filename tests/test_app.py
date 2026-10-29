@@ -4,7 +4,7 @@ from app import create_app
 
 VALID = {
     "name": "Ali Khan",
-   # "reg_no": "FA23-BSE-053",
+    "reg_no": "FA23-BSE-053",
     "title": "Lab 1",
     "url": "https://github.com/ali/lab1",
 }
