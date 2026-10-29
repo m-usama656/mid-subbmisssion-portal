@@ -27,7 +27,7 @@ def test_valid_submission_is_saved_and_listed(client):
 
 def test_missing_registration_number_is_rejected(client):
     r = client.post("/submit", data={**VALID, "reg_no": ""})
-    assert r.status_code == 200
+    assert r.status_code == 400
     assert b"Registration number is required" in r.data
     assert b"Ali Khan" not in client.get("/").data
 
